@@ -18,6 +18,15 @@ uniform sampler2D colortex0;
 uniform float viewWidth;
 uniform float viewHeight;
 
+// Camera tracking uniforms provided by Iris / OptiFine.
+// - cameraPosition is the current world position of the camera.
+// - previousCameraPosition is the world position from the previous frame.
+uniform vec3 cameraPosition;
+uniform vec3 previousCameraPosition;
+
+// Model-view matrix, used to rotate world-space translation into camera space.
+uniform mat4 gbufferModelView;
+
 /*
     ========================================================================
     CONFIGURATION SETTINGS
@@ -25,23 +34,18 @@ uniform float viewHeight;
     ========================================================================
 */
 
-// The maximum offset distance of the blur in texture coordinates.
+// The base offset distance of the blur in texture coordinates.
 // A value of 0.01 means the blur extends 1% of the screen width/height.
-// Increase this to make the blur stronger, or decrease it for a subtler effect.
 #define BLUR_STRENGTH 0.01 // [0.001 0.002 0.005 0.01 0.015 0.02 0.03 0.05 0.1]
+
+// Sensitivity of the blur to movement speed.
+// Higher values make the blur more pronounced at lower speeds.
+#define SPEED_MULTIPLIER 15.0 // [5.0 10.0 15.0 20.0 25.0 30.0 40.0 50.0]
 
 // The number of samples to take.
 // - Must be an odd integer (so the center pixel is sampled perfectly).
 // - Higher values make the blur look smoother (fewer "ghost" bands) but cost more GPU performance.
-// - Try 5, 9, 15, or 21.
 #define BLUR_SAMPLES 11 // [5 7 9 11 13 15 17 19 21]
-
-// The direction of the blur in screen space.
-// - vec2(1.0, 0.0) is a horizontal blur.
-// - vec2(0.0, 1.0) is a vertical blur.
-// - vec2(1.0, 1.0) is a 45-degree diagonal blur.
-// - vec2(1.0, 0.5) is a shallow diagonal blur.
-#define BLUR_DIRECTION vec2(1.0, 1.0)
 
 /*
     ========================================================================
@@ -49,25 +53,53 @@ uniform float viewHeight;
     ========================================================================
 */
 void main() {
-    // 1. Normalize the direction vector so that the direction angle does not
-    //    unintentionally scale the blur strength (e.g. diagonal vectors are longer).
-    vec2 normalizedDir = normalize(BLUR_DIRECTION);
+    // 1. Calculate translation vector in world space.
+    vec3 cameraOffset = cameraPosition - previousCameraPosition;
 
-    // 2. Adjust for screen aspect ratio if we want the blur direction to map
-    //    identically in visual angles. Since screens are wider than they are tall,
-    //    unadjusted diagonal blurs will stretch slightly differently.
-    //    We correct the Y component using (viewWidth / viewHeight).
+    // 2. Rotate the world-space offset vector into camera space.
+    //    Multiplying by gbufferModelView transforms the direction vector to match
+    //    the camera's orientation (X = right/left, Y = up/down, Z = forward/backward).
+    vec3 viewSpaceOffset = (gbufferModelView * vec4(cameraOffset, 0.0)).xyz;
+
+    // 3. Compute current translation speed and apply a small deadzone to prevent
+    //    precision jitter or floating errors from causing blur when standing still.
+    float speed = length(cameraOffset);
+    if (speed < 0.0005) {
+        speed = 0.0;
+    }
+
+    // 4. Determine screen-space motion direction from the view-space translation.
+    //    - Strafe left/right moves X.
+    //    - Jump/fall moves Y.
+    vec2 motionDir = viewSpaceOffset.xy;
+
+    // If moving forward/backward (Z translation only), fallback to a diagonal blur direction.
+    if (abs(viewSpaceOffset.z) > 0.0005 && length(motionDir) < 0.0005) {
+        motionDir = vec2(1.0, 1.0);
+    }
+
+    // 5. Normalize the motion direction vector. If there is no movement, the direction is zero.
+    vec2 blurDir = vec2(0.0);
+    float motionLen = length(motionDir);
+    if (motionLen > 0.0001) {
+        blurDir = motionDir / motionLen;
+    }
+
+    // 6. Adjust for screen aspect ratio so that diagonal/vertical blurs
+    //    have isotropic mapping (uniform visual blur angles).
     vec2 aspectCorrection = vec2(1.0, viewWidth / viewHeight);
-    vec2 correctDir = normalizedDir / aspectCorrection;
+    vec2 correctDir = blurDir / aspectCorrection;
 
-    // 3. Compute the step vector representing the maximum blur spread.
-    vec2 blurStep = correctDir * BLUR_STRENGTH;
+    // 7. Compute the dynamic blur step vector.
+    //    Blur strength is scaled proportionally to movement speed and sensitivity.
+    float dynamicStrength = BLUR_STRENGTH * speed * SPEED_MULTIPLIER;
+    vec2 blurStep = correctDir * dynamicStrength;
 
-    // 4. Initialize color accumulation variables.
+    // 8. Initialize color accumulation variables.
     vec4 colorSum = vec4(0.0);
     float totalWeight = 0.0;
 
-    // 5. Sample symmetrically along the blur line.
+    // 9. Sample symmetrically along the blur line.
     //    By sampling from -halfSamples to +halfSamples, the blur is centered
     //    directly on the pixel, preventing the screen from looking "shifted".
     int halfSamples = BLUR_SAMPLES / 2;
@@ -83,8 +115,6 @@ void main() {
         totalWeight += 1.0;
     }
 
-    // 6. Write the final averaged color to the screen.
-    //    In the composite pass, gl_FragColor writes directly back to the active
-    //    color attachment (usually colortex0), updating the screen.
+    // 10. Write the final averaged color to the screen.
     gl_FragColor = colorSum / totalWeight;
 }

@@ -29,17 +29,25 @@ By using the composite pass, we do not need to modify how blocks or entities loo
 
 ---
 
+## Current Dynamic Translation-Based Blur
+The current implementation tracks the player's translation movement between frames:
+1. It compares `cameraPosition` and `previousCameraPosition` to get a world-space movement vector.
+2. It rotates this vector into camera space using the `gbufferModelView` matrix to align it with screen coordinates (`X` for horizontal/strafing, `Y` for vertical/jumping, `Z` for forward/backward).
+3. The blur direction dynamically aligns with the screen-space movement (falling/jumping blurs vertically, strafing blurs horizontally).
+4. The blur strength is scaled by speed, meaning there is **no blur when standing still**.
+
+---
+
 ## Roadmap for Later Upgrades
 
-This project is designed to be a learning foundation. Here is how you can evolve it from a static screen-space blur into a realistic, dynamic motion blur:
+This project is designed to be a learning foundation. Here is how you can evolve it further:
 
-### Phase 1: Camera-Based Fake Motion Blur
-*   **Concept**: Blur the screen based on how fast the player is rotating the camera (pitch and yaw speed).
+### Phase 1: Camera Rotation Tracking
+*   **Concept**: Blur the screen when the player rotates the camera (looking around), even when standing physically still.
 *   **Implementation**:
-    1.  Read the frame-to-frame change in camera angles using Iris's uniforms (e.g., `cameraPosition`, `previousCameraPosition`, or tracking yaw/pitch changes manually via scripts/uniforms).
-    2.  Calculate the angular velocity of the camera.
-    3.  Set the `BLUR_DIRECTION` dynamically to match the direction of camera movement.
-    4.  Scale the `BLUR_STRENGTH` based on the rotation speed (no rotation = no blur).
+    1.  Reconstruct the camera rotation matrix change between frames.
+    2.  Extract the delta yaw and pitch.
+    3.  Add the rotational velocity to the screen-space blur vector to combine translation and rotation.
 
 ### Phase 2: Velocity-Aware (True) Motion Blur
 *   **Concept**: Blur pixels individually based on how fast that specific pixel's world coordinate is moving relative to the screen. This handles both camera translation/rotation and moving entities.
