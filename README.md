@@ -85,22 +85,25 @@ This repository includes a continuous integration workflow (`.github/workflows/c
 
 ### How the Workflow Works:
 1. **Validation**: Checks that `composite.vsh`, `composite.fsh`, and `screen.properties` are in the correct directories.
-2. **Packaging**: Zips the contents of the `shaderpack/` folder.
-   - For regular commits/branches, it creates `basic-motion-blur-dev.zip`.
-   - For version tags, it creates `basic-motion-blur-v<version>.zip`.
-3. **Artifact Upload**: Uploads the `.zip` archive to the GitHub Actions run as a workflow artifact.
-4. **Auto-Release**: If a version tag matching `v*` (e.g., `v0.1.0`) is pushed, it automatically creates a GitHub Release and attaches the release zip.
+2. **Packaging & Release**: Zips the contents of the `shaderpack/` folder and uploads it as a workflow artifact, then automatically publishes a new GitHub Release:
+   - **Branch pushes (e.g., `main`)**: Generates a release tagged `dev-<commit-sha>` (e.g., `dev-abcdef1`) and names it `Development Build dev-<commit-sha>`. The archive is named `basic-motion-blur-dev-<commit-sha>.zip`.
+   - **Version tags (e.g., `v*`)**: Generates a release tagged with the version name (e.g., `v0.1.0`) and names it `Release v0.1.0`. The archive is named `basic-motion-blur-v0.1.0.zip`.
 
 ### How to Publish a Release:
-To publish a new version, commit your changes, tag the commit, and push it to GitHub:
-```bash
-# 1. Add version tag
-git tag v0.1.0
+*   **For Development Builds**: Simply commit and push your changes to the `main` branch. The action will automatically compile the zip, upload the artifact, and create a dev release.
+    ```bash
+    git add .
+    git commit -m "Your commit message"
+    git push origin main
+    ```
+*   **For Version Tag Releases**: Add a version tag to your commit and push it to trigger a formal release:
+    ```bash
+    # 1. Add version tag
+    git tag v0.1.0
 
-# 2. Push tag to GitHub (triggers the release workflow)
-git push origin v0.1.0
-```
-The workflow will run, create the release `v0.1.0`, build the zip, and attach it to the release page.
+    # 2. Push tag to GitHub
+    git push origin v0.1.0
+    ```
 
 ---
 
