@@ -1,0 +1,19 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Zip releases and builds
+*.zip
+build/
+dist/
+
+# IDE files
+.vscode/
+.idea/
+*.suo
+*.user
+*.workspace
+
+# Logs
+*.log

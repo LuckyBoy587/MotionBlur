@@ -1,0 +1,85 @@
+name: CI and Release Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Check out the repository code
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Validate that the shaderpack files exist in the correct structure
+      - name: Validate Shaderpack Structure
+        run: |
+          echo "Checking for essential shader files..."
+          if [ ! -f "shaderpack/shaders/composite.vsh" ]; then
+            echo "Error: composite.vsh is missing!" >&2
+            exit 1
+          fi
+          if [ ! -f "shaderpack/shaders/composite.fsh" ]; then
+            echo "Error: composite.fsh is missing!" >&2
+            exit 1
+          fi
+          if [ ! -f "shaderpack/shaders/screen.properties" ]; then
+            echo "Error: screen.properties is missing!" >&2
+            exit 1
+          fi
+          echo "All shader files validated successfully."
+
+      # 3. Determine the archive filename based on the git reference
+      - name: Set Archive Filename
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # Tag format: refs/tags/v0.1.0 -> basic-motion-blur-v0.1.0.zip
+            TAG_NAME="${{ github.ref_name }}"
+            echo "ZIP_NAME=basic-motion-blur-${TAG_NAME}.zip" >> $GITHUB_ENV
+            echo "IS_RELEASE=true" >> $GITHUB_ENV
+          else
+            # Default branch format: basic-motion-blur-dev.zip
+            echo "ZIP_NAME=basic-motion-blur-dev.zip" >> $GITHUB_ENV
+            echo "IS_RELEASE=false" >> $GITHUB_ENV
+          fi
+
+      # 4. Package the shader pack contents into a zip archive
+      #    Note: We must zip the contents of 'shaderpack/' (i.e. the 'shaders' folder)
+      #    directly so the zip root has the correct layout for Minecraft.
+      - name: Package Shaderpack
+        run: |
+          cd shaderpack
+          zip -r "../${{ env.ZIP_NAME }}" .
+          cd ..
+          echo "Created archive: ${{ env.ZIP_NAME }}"
+
+      # 5. Upload the generated zip file as a workflow artifact
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
+      # 6. If a tag was pushed, create a GitHub Release and attach the zip archive
+      #    Uses the pre-installed 'gh' CLI tool on the Ubuntu runner.
+      - name: Create GitHub Release
+        if: env.IS_RELEASE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Publishing GitHub Release for tag: ${{ github.ref_name }}"
+          gh release create "${{ github.ref_name }}" "${{ env.ZIP_NAME }}" \
+            --title "Release ${{ github.ref_name }}" \
+            --generate-notes
